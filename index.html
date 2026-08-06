@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BnB — a Crazy Arcade recreation</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- ---------------------------------------------------------------- -->
+      <section id="menu" class="screen">
+        <header class="brand">
+          <h1>BnB</h1>
+          <p class="tagline">
+            Place water balloons to trap opponents inside a water bubble, then pop the bubble to
+            eliminate them.
+          </p>
+        </header>
+
+        <div class="config">
+          <div class="panel">
+            <h2>Character</h2>
+            <div id="charGrid" class="char-grid"></div>
+          </div>
+
+          <div class="panel">
+            <h2>Match</h2>
+
+            <label class="field">
+              <span>Game type</span>
+              <select id="gameType">
+                <option value="normal">일반모드 — Normal</option>
+                <option value="respawn">부활대전 — Respawn deathmatch</option>
+                <option value="hedgehog">고슴도치 — Hedgehog</option>
+                <option value="captain">대장잡기 — Capture the captain</option>
+                <option value="timebomb">시한폭탄 — Time bomb</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Map</span>
+              <select id="mapId"></select>
+            </label>
+
+            <label class="field">
+              <span>Opponents</span>
+              <select id="opponents">
+                <option value="1">1 COM</option>
+                <option value="2">2 COM</option>
+                <option value="3" selected>3 COM</option>
+                <option value="4">4 COM</option>
+                <option value="5">5 COM</option>
+                <option value="6">6 COM</option>
+                <option value="7">7 COM (the hard one)</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Teams</span>
+              <select id="teamMode">
+                <option value="ffa">Free-for-all</option>
+                <option value="team" selected>You vs the COM team</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>COM difficulty</span>
+              <select id="tier">
+                <option value="1">★1 lv3 — Ultra-Easy</option>
+                <option value="2">★2 lv10 — Easy</option>
+                <option value="3">★3 lv43 — Moderate</option>
+                <option value="4" selected>★4 lv52 — Normal</option>
+                <option value="5">★5 lv109 — Hard</option>
+                <option value="6">★6 lv163 — Extreme</option>
+              </select>
+            </label>
+            <p id="tierNote" class="note"></p>
+
+            <label class="field">
+              <span>Ruleset</span>
+              <select id="preset"></select>
+            </label>
+            <p id="presetNote" class="note"></p>
+          </div>
+        </div>
+
+        <div class="start-row">
+          <button id="startBtn" class="primary">Start match</button>
+          <p class="controls-hint">
+            <b>Arrows</b> move &middot; <b>Space</b> places a balloon &middot; <b>1-9</b> selects a
+            slot &middot; <b>Ctrl</b> uses it
+          </p>
+        </div>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="game" class="screen hidden">
+        <div class="topbar">
+          <button id="quitBtn" class="ghost">&larr; Menu</button>
+          <div id="clock" class="clock">3:00</div>
+          <div id="scoreline" class="scoreline"></div>
+        </div>
+
+        <div class="stage">
+          <canvas id="canvas"></canvas>
+          <div id="banner" class="banner hidden"></div>
+          <div id="overlay" class="overlay hidden">
+            <div class="overlay-card">
+              <h2 id="overlayTitle"></h2>
+              <p id="overlayBody"></p>
+              <div id="rankBox" class="rank-box"></div>
+              <div class="overlay-actions">
+                <button id="againBtn" class="primary">Play again</button>
+                <button id="menuBtn" class="ghost">Menu</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="hud" class="hud"></div>
+      </section>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
