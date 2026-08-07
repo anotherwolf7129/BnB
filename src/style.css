@@ -117,12 +117,20 @@ body {
   background: #223046;
 }
 
-.char .dot {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  margin: 0 auto 5px;
-  border: 2px solid rgba(0, 0, 0, 0.35);
+.char .portrait {
+  display: block;
+  margin: 0 auto 2px;
+  image-rendering: auto;
+}
+
+.char .bonus {
+  font-size: 9px;
+  font-weight: 500;
+  vertical-align: middle;
+  padding: 1px 4px;
+  border-radius: 6px;
+  background: rgba(255, 213, 79, 0.18);
+  color: #ffd54f;
 }
 
 .char .ko {

@@ -20,6 +20,7 @@ import {
   type Player,
 } from '../sim/types.js';
 import { World, teamColor } from '../sim/world.js';
+import { drawFigure } from './figures.js';
 
 interface FloatingText {
   x: number;
@@ -33,6 +34,8 @@ export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private floats: FloatingText[] = [];
   private shake = 0;
+  /** Per-player walk cycle, advanced by distance travelled rather than time. */
+  private gait = new Map<number, { x: number; y: number; phase: number }>();
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
@@ -73,6 +76,7 @@ export class Renderer {
     }
 
     this.drawFloor(world);
+    this.drawConveyors(world);
     this.drawGround(world);
     this.drawBlocks(world);
     this.drawSensor(world, viewerId);
@@ -94,6 +98,46 @@ export class Renderer {
       for (let c = 0; c < GRID_COLS; c++) {
         ctx.fillStyle = (c + r) % 2 === 0 ? t.floorA : t.floorB;
         ctx.fillRect(c * TILE, r * TILE, TILE, TILE);
+      }
+    }
+  }
+
+  /** [COMMUNITY] 컨베이어 벨트 — plated floor with chevrons scrolling along it. */
+  private drawConveyors(world: World): void {
+    const ctx = this.ctx;
+    const plate = world.map.def.theme.belt ?? '#4d5560';
+    for (let r = 0; r < GRID_ROWS; r++) {
+      for (let c = 0; c < GRID_COLS; c++) {
+        const dir = world.conveyorAt(c, r);
+        if (dir === null) continue;
+        const x = c * TILE;
+        const y = r * TILE;
+        ctx.fillStyle = plate;
+        ctx.fillRect(x, y, TILE, TILE);
+
+        // Chevrons march in the belt's direction so which way it runs is
+        // readable at a glance, even standing still.
+        const dc = dir === 1 ? 1 : dir === 3 ? -1 : 0;
+        const dr = dir === 2 ? 1 : dir === 0 ? -1 : 0;
+        const scroll = (world.time * 26) % 16;
+        ctx.save();
+        ctx.translate(x + TILE / 2, y + TILE / 2);
+        ctx.rotate(Math.atan2(dr, dc));
+        ctx.strokeStyle = 'rgba(255,255,255,0.42)';
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        for (let i = -1; i < 2; i++) {
+          const ox = i * 16 + scroll - 8;
+          ctx.beginPath();
+          ctx.moveTo(ox - 5, -7);
+          ctx.lineTo(ox + 3, 0);
+          ctx.lineTo(ox - 5, 7);
+          ctx.stroke();
+        }
+        ctx.restore();
+        ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, TILE - 1, TILE - 1);
       }
     }
   }
@@ -331,38 +375,26 @@ export class Renderer {
 
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.beginPath();
-    ctx.ellipse(x, y + rr * 0.95, rr * 0.9, rr * 0.35, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, y + rr * 1.15, rr * 0.9, rr * 0.32, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Team ring — a disguise wears the enemy colour.
+    // Team ring under the feet — a disguise wears the enemy colour.
     const shownTeam = p.disguiseUntil > world.time ? (p.team + 1) % 8 : p.team;
-    ctx.strokeStyle = teamColor(shownTeam);
-    ctx.lineWidth = 3;
+    const team = teamColor(shownTeam);
+    ctx.strokeStyle = team;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.ellipse(x, y + rr * 0.95, rr * 0.95, rr * 0.4, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, y + rr * 1.15, rr * 0.95, rr * 0.36, 0, 0, Math.PI * 2);
     ctx.stroke();
 
-    ctx.fillStyle = ch.color;
-    ctx.beginPath();
-    ctx.arc(x, y, rr, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = ch.accent;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // Eyes, pointed the way you are facing.
-    const dx = p.facing === 1 ? 2.5 : p.facing === 3 ? -2.5 : 0;
-    const dy = p.facing === 2 ? 2 : p.facing === 0 ? -2 : 0;
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(x - 5, y - 2, 4.2, 0, Math.PI * 2);
-    ctx.arc(x + 5, y - 2, 4.2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#1b1b1b';
-    ctx.beginPath();
-    ctx.arc(x - 5 + dx, y - 2 + dy, 2, 0, Math.PI * 2);
-    ctx.arc(x + 5 + dx, y - 2 + dy, 2, 0, Math.PI * 2);
-    ctx.fill();
+    drawFigure(ctx, {
+      look: ch.look,
+      x,
+      y,
+      facing: p.facing,
+      walk: this.walkPhase(p),
+      team,
+    });
 
     if (p.state === PlayerState.TRAPPED) {
       // The bubble becomes progressively more opaque; when the character is
@@ -370,14 +402,14 @@ export class Renderer {
       const k = Math.min(1, p.trappedFor / p.drownTime);
       ctx.fillStyle = `rgba(120, 200, 255, ${0.25 + 0.55 * k})`;
       ctx.beginPath();
-      ctx.arc(x, y, rr * 1.5, 0, Math.PI * 2);
+      ctx.arc(x, y, rr * 1.55, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = 'rgba(255,255,255,0.9)';
       ctx.lineWidth = 2;
       ctx.stroke();
       ctx.fillStyle = 'rgba(255,255,255,0.8)';
       ctx.beginPath();
-      ctx.arc(x - rr * 0.5, y - rr * 0.6, rr * 0.2, 0, Math.PI * 2);
+      ctx.arc(x - rr * 0.55, y - rr * 0.65, rr * 0.2, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -399,13 +431,14 @@ export class Renderer {
     // [COMMUNITY] 대장잡기: the captain carries a team-coloured flag, and a
     // disguise does not change the flag's colour.
     if (p.isCaptain) {
+      const top = y - rr - 24;
       ctx.fillStyle = '#6d4c41';
-      ctx.fillRect(x + rr - 2, y - rr - 16, 2, 16);
+      ctx.fillRect(x + rr - 2, top, 2, 16);
       ctx.fillStyle = teamColor(p.team);
       ctx.beginPath();
-      ctx.moveTo(x + rr, y - rr - 16);
-      ctx.lineTo(x + rr + 13, y - rr - 11);
-      ctx.lineTo(x + rr, y - rr - 6);
+      ctx.moveTo(x + rr, top);
+      ctx.lineTo(x + rr + 13, top + 5);
+      ctx.lineTo(x + rr, top + 10);
       ctx.closePath();
       ctx.fill();
     }
@@ -413,15 +446,35 @@ export class Renderer {
     if (p.hasBomb) {
       ctx.fillStyle = '#222';
       ctx.beginPath();
-      ctx.arc(x, y - rr - 12, 7, 0, Math.PI * 2);
+      ctx.arc(x, y - rr - 20, 7, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#ff6d00';
       ctx.font = 'bold 10px system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(Math.ceil(p.bombTimer).toString(), x, y - rr - 8);
+      ctx.textBaseline = 'middle';
+      ctx.fillText(Math.ceil(p.bombTimer).toString(), x, y - rr - 19);
     }
 
     ctx.restore();
+  }
+
+  /**
+   * The walk cycle advances with distance covered, not with the clock, so a
+   * slow character takes slow steps and a stopped one stands still. One full
+   * cycle per 26px keeps the stride length believable at every speed.
+   */
+  private walkPhase(p: Player): number {
+    let g = this.gait.get(p.id);
+    if (!g) {
+      g = { x: p.pos.x, y: p.pos.y, phase: 0 };
+      this.gait.set(p.id, g);
+    }
+    const moved = Math.hypot(p.pos.x - g.x, p.pos.y - g.y);
+    g.x = p.pos.x;
+    g.y = p.pos.y;
+    // A teleport (spring hop, respawn) must not spin the legs.
+    if (moved < 12) g.phase = (g.phase + moved / 26) % 1;
+    return g.phase;
   }
 
   private drawHedgehog(p: Player, x: number, y: number, rr: number): void {

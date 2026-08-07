@@ -68,8 +68,20 @@ This follows the spec's build order. Milestones 1–4 are done, plus most of the
   kill). A needle escapes instantly. Drowning kills you but *denies the
   opponent the kill* — which is exactly why players sometimes refuse the oxygen
   tank.
-* **The 12 basic characters**, with Nexon's own 개수 / 물줄기 / 속도 base→max
-  table. The paid 럭셔리 / 슈퍼 tiers are deliberately not shipped.
+* **The eight default characters** — 배찌, 다오, 디지니, 모스, 우니, 에띠,
+  마리드, 케피 — with Nexon's own 개수 / 물줄기 / 속도 base→max table, plus the
+  two the original only handed out through 랜덤, 로두마니 and 산타. The paid
+  럭셔리 / 슈퍼 tiers are deliberately not shipped.
+
+  Each is drawn as an actual figure rather than a coloured disc: head,
+  headgear, torso, outfit, arms and legs, composed at draw time from a
+  `CharacterLook` description in `src/sim/characters.ts`. The descriptions
+  follow the character art as documented by the Korean community — 배찌's eared
+  hood and permanently half-shut eyes, 다오's blue helmet and belt, 디지니's
+  cat-eared helmet and star buckle, 마리드's parted bob over a pink pinafore,
+  에띠 as the only one in glasses, 케피 as the round one, 모스 in a white
+  sleeveless top. Adding a character is a data change, not a sprite sheet. The
+  same code draws the menu portraits.
 * Deterministic, fixed-timestep, seeded, and fully headless-testable — the
   renderer never touches simulation state.
 
@@ -89,7 +101,9 @@ balloons left" state.
 
 The **item plane** flies on the documented remaining-clock windows — 1:59,
 1:36, 1:14, 0:51, 0:29, 0:07 — dropping up to two items per pass, and does not
-appear on the ghost maps.
+appear on the ghost maps. It never flies during the first minute, so on a match
+shorter than the standard 3:00 the early windows simply do not happen rather
+than all firing at once on the first tick.
 
 **Rulesets** are the pre-match loadout, offered as the original's four culture
 presets: 노샵 / 기샵 / 풀샵 / 올노. Since nothing is for sale here, the loadout
@@ -150,14 +164,41 @@ tiers ≤ ★3 no more than two enemies engage you at once.
 
 ### Maps
 
-Three, authored as ASCII in `src/sim/maps.ts` so new ones are cheap:
+Fourteen, one per themed land of the 마을 overworld plus 패트릿, authored as
+ASCII in `src/sim/maps.ts` so new ones are cheap. The layouts are our own
+reconstructions in the 15×13 grid; what is taken from the source is each land's
+*character* — which hazards it carries, which items drop there, and whether the
+item plane flies.
 
-* **파티라 14 (Patrit 14)** — wide, symmetric, mostly soft blocks, a central
-  structure and four pillars. No spawn holds a positional advantage, which is
-  exactly why it is the community's most-played map.
-* **캠프 (Camp)** — carries spikes, and is flagged as closed to the AI,
-  mirroring the original's exclusion of it from 협공배틀.
-* **공동묘지 (Graveyard)** — a ghost map, so the item plane does not fly.
+| Map | Land | What makes it itself |
+| --- | --- | --- |
+| 패트릿 14 | 패트릿 | Wide, symmetric, four pillars. No spawn holds an advantage, which is exactly why it is the community's most-played map. |
+| 빌리지 | 빌리지 | The 마을 itself. Dense and forgiving; the first land anyone plays. |
+| 포레스트 07 | 포레스트 | Tree scenery in a diamond. The popular one, and the home of 몬스터 모드. |
+| 비치 | 비치 | Open sand under parasols. Fast, and very hard to hide on. |
+| 바다 | 바다 | Concentric reef walls; the lanes between them are the whole map. Oxygen-heavy pool. |
+| 데저트 05 | 데저트 | Two counter-running **conveyor belts**, so crossing is much easier one way than the other. |
+| 아이스 01 | 아이스 | **Conveyor** columns that funnel everyone inward, and skates everywhere. |
+| 캠프 07 | 캠프 | **Spikes** (가시). Flagged as closed to the AI, mirroring its exclusion from 협공배틀. |
+| 공동묘지 | 공동묘지 | A ghost map, so the item plane does not fly. |
+| 던전 | 던전 | A pillar grid: short sightlines, and one balloon seals a corridor. Also a ghost map. |
+| 팩토리 01 | 팩토리 | Four **conveyor** lanes, paired so each end has one in and one out. |
+| 캔디 | 캔디 | Heart blocks everywhere, which makes 신발 and 붉은 악마 worth far more. |
+| 스페이스 | 스페이스 | Thin catwalks over a lot of nothing. Long sightlines, few refuges. |
+| 로두마니 성 | 로두마니 성 | A stone throne room with a single soft gate top and bottom. |
+
+Two hazards ride on top of the block layer:
+
+* **가시 (spikes)** — a balloon left resting *on* a spike is punctured and
+  bursts on the spot. Only that tile; standing beside one is harmless.
+* **컨베이어 벨트 (conveyor belts)** — anything on a belt is carried along it,
+  players and balloons alike. Slow enough to walk against, fast enough to ruin
+  a dodge.
+
+A test asserts that every map is fully connected once the soft blocks are gone,
+that no pocket of floor is walled off by indestructible scenery (which would
+silently swallow item-plane drops), and that a 4-COM match survives its opening
+on each one.
 
 ### Rank
 
@@ -183,6 +224,8 @@ test/items.test.ts      stat caps, devils, traps, item plane windows, maps, rank
 test/ai.test.ts         danger map, chain resolution, the tier ladder, behaviour
 test/modes.test.ts      all four alternate game types
 test/match.test.ts      full-match stability
+test/maps.test.ts       every map: dimensions, connectivity, hazards, AI opening
+test/regressions.test.ts fixed bugs, each pinned by the case that exposed it
 ```
 
 ---
@@ -212,6 +255,10 @@ values worth measuring before 13 August 2026:
 8. 파워산삼's exact stat delta
 9. Dismount landing delay — this determines whether 내림킬 is possible
 10. Whether the 일반모드 clock is exactly 3:00
+11. Conveyor belt speed, and whether belts carry balloons as well as players
+    (we assume both)
+12. The real per-map layouts. Ours are reconstructions of each land's
+    character, not tile-for-tile copies.
 
 If you can capture footage or measurements from the live game before it goes
 down, those ten numbers are the highest-value thing to bring back.
@@ -241,9 +288,10 @@ src/sim/       headless simulation — no DOM, no rendering
   constants.ts every tunable, tagged by source reliability
   world.ts     the step loop: movement, balloons, jets, items, modes, win checks
   movement.ts  collision, corner assist, and the straddle commit rule
-  maps.ts      ASCII map definitions and per-map item pools
+  maps.ts      ASCII map definitions, hazards and per-map item pools
 src/ai/        danger map, pathfinding, tier table, controller
 src/render/    procedural canvas renderer
+  figures.ts   character figures, composed from CharacterLook descriptions
 src/input.ts   keyboard schemes
 src/main.ts    menu, game loop, HUD
 test/          headless simulation tests

@@ -2,6 +2,7 @@ import {
   BLOCK_DROP_CHANCE,
   BOND_SPEED_PPS,
   CHAR_HALF,
+  CONVEYOR_SPEED_PPS,
   CURSE_FORCED_PLACE_INTERVAL,
   CURSE_SECONDS,
   DART_RANGE_TILES,
@@ -15,6 +16,7 @@ import {
   GRID_ROWS,
   HEDGEHOG_SPEED_PPS,
   HEDGEHOG_STUN_SECONDS,
+  ITEM_PLANE_FIRST_PASS_DELAY,
   ITEM_PLANE_MAX_DROPS,
   ITEM_PLANE_WINDOWS,
   JET_SECONDS,
@@ -114,6 +116,8 @@ export class World {
   readonly cfg: MatchConfig;
   readonly map: LoadedMap;
   readonly tiles: Uint8Array;
+  /** [COMMUNITY] 컨베이어 벨트, per tile: 0 = none, otherwise DirIndex + 1. */
+  readonly conveyor: Uint8Array;
   readonly ground: Ground[];
   readonly players: Player[] = [];
   readonly balloons: Balloon[] = [];
@@ -122,6 +126,8 @@ export class World {
 
   time = 0;
   clock: number;
+  /** The clock this match started on, so the item plane can schedule itself. */
+  readonly startClock: number;
   phase: MatchPhase = MatchPhase.COUNTDOWN;
   countdown = 3;
   result: MatchResult | null = null;
@@ -141,12 +147,14 @@ export class World {
     const def = getMap(cfg.mapId);
     this.map = loadMap(def);
     this.tiles = this.map.tiles.slice();
+    this.conveyor = this.map.conveyor;
     this.ground = new Array(GRID_COLS * GRID_ROWS);
     for (let i = 0; i < this.ground.length; i++) this.ground[i] = { kind: GroundKind.NONE };
 
     this.clock =
       cfg.matchSeconds ??
       (cfg.gameType === GameType.RESPAWN ? MATCH_SECONDS_RESPAWN : MATCH_SECONDS_NORMAL);
+    this.startClock = this.clock;
     this.itemPlaneEnabled = (cfg.itemPlane ?? def.itemPlane) && def.itemPlane;
     this.planeFired = ITEM_PLANE_WINDOWS.map(() => false);
 
@@ -254,6 +262,13 @@ export class World {
     return this.ground[tileIndex(c, r)];
   }
 
+  /** The belt running under a tile, or null. */
+  conveyorAt(c: number, r: number): DirIndex | null {
+    if (!inBounds(c, r)) return null;
+    const v = this.conveyor[tileIndex(c, r)];
+    return v === 0 ? null : ((v - 1) as DirIndex);
+  }
+
   balloonAt(c: number, r: number): Balloon | null {
     for (const b of this.balloons) {
       if (b.throwFrom) continue; // in flight, not on the grid
@@ -324,8 +339,18 @@ export class World {
 
   /** Recompute the numbered slots from the inventory. Idempotent. */
   refreshSlots(p: Player): void {
-    p.slots = SLOT_ORDER.filter((id) => (p.inventory.get(id) ?? 0) > 0);
+    p.slots = SLOT_ORDER.filter((id) => {
+      if ((p.inventory.get(id) ?? 0) > 0) return true;
+      // 무선 물폭탄 keeps its slot while the player still has a bomb on the
+      // field. Spending the last charge to place one used to take the slot
+      // away, leaving the bomb sitting there with no way to set it off.
+      return id === ItemId.REMOTE && this.hasLiveRemote(p);
+    });
     if (p.selectedSlot >= p.slots.length) p.selectedSlot = Math.max(0, p.slots.length - 1);
+  }
+
+  private hasLiveRemote(p: Player): boolean {
+    return this.balloons.some((b) => b.remote && b.ownerId === p.id);
   }
 
   // -------------------------------------------------------------------------
@@ -440,6 +465,7 @@ export class World {
       const step = SLIDE_SPEED_PPS * DT;
       const res = moveWithCollision(p.pos, d.c * step, d.r * step, solid);
       if (!res.moved) p.slideDir = null;
+      this.rideConveyor(p, solid);
       commitLogicalTile(p.pos, p.logicalTile);
       this.checkGroundUnder(p);
       return;
@@ -461,8 +487,9 @@ export class World {
       if (res.blocked && p.canPush && res.blockedC >= 0) {
         this.tryPush(p, res.blockedC, res.blockedR);
       }
-      commitLogicalTile(p.pos, p.logicalTile);
     }
+    this.rideConveyor(p, solid);
+    commitLogicalTile(p.pos, p.logicalTile);
 
     this.checkGroundUnder(p);
 
@@ -475,7 +502,11 @@ export class World {
         this.placeBalloon(p);
       }
     }
-    if (p.input.place && !p.prevInput.place) this.placeBalloon(p);
+    if (p.input.place && !p.prevInput.place) {
+      // [COMMUNITY] 장갑: pressing place while standing on your own balloon
+      // throws it instead of trying (and failing) to stack a second one.
+      if (!this.throwHeldBalloon(p)) this.placeBalloon(p);
+    }
     if (p.input.use && !p.prevInput.use) this.useSelectedItem(p);
   }
 
@@ -483,13 +514,16 @@ export class World {
     p.trappedFor += DT;
 
     // [COMMUNITY] you can still move, extremely slowly, and cannot place.
+    const solid = this.solidForPlayer(p);
     const { dx, dy } = this.inputDirection(p);
     if (dx !== 0 || dy !== 0) {
       const len = Math.hypot(dx, dy) || 1;
       const step = TRAPPED_SPEED_PPS * DT;
-      moveWithCollision(p.pos, (dx / len) * step, (dy / len) * step, this.solidForPlayer(p));
-      commitLogicalTile(p.pos, p.logicalTile);
+      moveWithCollision(p.pos, (dx / len) * step, (dy / len) * step, solid);
     }
+    // A bubbled player is at the belt's mercy — they cannot outwalk it.
+    this.rideConveyor(p, solid);
+    commitLogicalTile(p.pos, p.logicalTile);
 
     // 바늘 is the only item usable from inside a bubble.
     if (p.input.use && !p.prevInput.use) {
@@ -511,18 +545,35 @@ export class World {
     }
     const { dx, dy, dir } = this.inputDirection(p);
     if (dir !== null) p.facing = dir;
+    // A hedgehog ignores balloons — it detonates them on contact instead.
+    const solid: SolidFn = (c, r) => {
+      if (!inBounds(c, r)) return true;
+      return isBlock(this.tileAt(c, r));
+    };
     if (dx !== 0 || dy !== 0) {
       const len = Math.hypot(dx, dy) || 1;
       const step = (p.superHedgehog ? SUPER_HEDGEHOG_SPEED_PPS : HEDGEHOG_SPEED_PPS) * DT;
-      // A hedgehog ignores balloons — it detonates them on contact instead.
-      moveWithCollision(p.pos, (dx / len) * step, (dy / len) * step, (c, r) => {
-        if (!inBounds(c, r)) return true;
-        return isBlock(this.tileAt(c, r));
-      });
-      const tl = tileOf(p.pos.x, p.pos.y);
-      p.logicalTile.c = tl.c;
-      p.logicalTile.r = tl.r;
+      moveWithCollision(p.pos, (dx / len) * step, (dy / len) * step, solid);
     }
+    this.rideConveyor(p, solid);
+    const tl = tileOf(p.pos.x, p.pos.y);
+    p.logicalTile.c = tl.c;
+    p.logicalTile.r = tl.r;
+  }
+
+  /**
+   * [COMMUNITY] 컨베이어 벨트. Whatever stands on a belt is carried along it.
+   * The drift is applied on top of the character's own movement, so walking
+   * with the belt is quick and walking against it is a crawl — which is the
+   * whole point of the Desert, Ice and Factory lanes.
+   */
+  private rideConveyor(p: Player, solid: SolidFn): void {
+    const { c, r } = tileOf(p.pos.x, p.pos.y);
+    const dir = this.conveyorAt(c, r);
+    if (dir === null) return;
+    const d = DIRS[dir];
+    const step = CONVEYOR_SPEED_PPS * DT;
+    moveWithCollision(p.pos, d.c * step, d.r * step, solid);
   }
 
   private tryPush(p: Player, c: number, r: number): void {
@@ -545,7 +596,7 @@ export class World {
 
   private respawn(p: Player): void {
     // Respawn at the spawn point furthest from any living enemy.
-    let best = this.map.spawns[0];
+    let best: TileRef | null = null;
     let bestScore = -Infinity;
     for (const s of this.map.spawns) {
       if (this.solid(s.c, s.r)) continue;
@@ -560,6 +611,9 @@ export class World {
         best = s;
       }
     }
+    // Every spawn blocked — a live balloon sitting on one is enough. Take any
+    // free tile rather than respawning inside a wall.
+    if (!best) best = this.firstFreeTile() ?? this.map.spawns[0];
     p.pos = { x: tileCenterX(best.c), y: tileCenterY(best.r) };
     p.logicalTile = { c: best.c, r: best.r };
     p.state = PlayerState.ALIVE;
@@ -567,6 +621,15 @@ export class World {
     p.slideDir = null;
     p.onBond = false;
     p.invulnUntil = this.time + RESCUE_INVULN_SECONDS;
+  }
+
+  private firstFreeTile(): TileRef | null {
+    for (let r = 0; r < GRID_ROWS; r++) {
+      for (let c = 0; c < GRID_COLS; c++) {
+        if (!this.solid(c, r) && this.tileAt(c, r) !== TileKind.SPIKE) return { c, r };
+      }
+    }
+    return null;
   }
 
   // -------------------------------------------------------------------------
@@ -602,21 +665,26 @@ export class World {
     }
     if (!remote) p.liveBalloons++;
 
-    // [COMMUNITY] a balloon on or beside a spike detonates immediately.
-    // This is the bug that got Camp excluded from 협공배틀.
-    if (this.nearSpike(c, r)) b.fuse = 0.01;
+    // [COMMUNITY] 가시: a balloon resting *on* a spike tile is punctured and
+    // bursts at once. Only that tile — a balloon merely standing next to a
+    // spike is a perfectly ordinary balloon.
+    if (this.onSpike(c, r)) b.fuse = 0.01;
 
     this.balloons.push(b);
     this.events.push({ type: 'place', playerId: p.id, tile: { c, r } });
     return b;
   }
 
-  private nearSpike(c: number, r: number): boolean {
-    if (this.tileAt(c, r) === TileKind.SPIKE) return true;
-    for (const d of DIRS) {
-      if (this.tileAt(c + d.c, r + d.r) === TileKind.SPIKE) return true;
-    }
-    return false;
+  /**
+   * True only for the spike tile itself.
+   *
+   * This used to also return true for the four neighbours, which meant that on
+   * Camp — where spikes are scattered across open floor — placing a balloon on
+   * an ordinary tile anywhere near one popped it instantly. Spikes puncture
+   * what touches them, not what stands beside them.
+   */
+  private onSpike(c: number, r: number): boolean {
+    return this.tileAt(c, r) === TileKind.SPIKE;
   }
 
   private kickBalloon(b: Balloon, dir: DirIndex): void {
@@ -704,12 +772,27 @@ export class World {
           g.kind = GroundKind.NONE;
           detonate.push(b);
         }
-      } else if (!b.remote) {
+      }
+
+      // A balloon sitting on a belt rides it just like a player does.
+      if (b.moveDir === null && !b.throwFrom) {
+        const belt = this.conveyorAt(b.tile.c, b.tile.r);
+        if (belt !== null) this.kickBalloon(b, belt);
+      }
+
+      // The fuse burns whatever the balloon is doing. Ticking it only while
+      // the balloon was at rest meant a kicked balloon — or one riding a belt,
+      // which never comes to rest — kept its fuse frozen and simply never
+      // detonated.
+      if (!b.remote) {
         b.fuse -= DT;
         if (b.fuse <= 0) detonate.push(b);
       }
 
-      if (!b.remote && this.nearSpike(b.tile.c, b.tile.r) && b.fuse > 0.02) b.fuse = 0.01;
+      // A balloon kicked or thrown *onto* a spike bursts when it arrives.
+      if (!b.remote && !b.throwFrom && this.onSpike(b.tile.c, b.tile.r) && b.fuse > 0.02) {
+        b.fuse = 0.01;
+      }
     }
 
     for (const b of detonate) this.explode(b);
@@ -836,6 +919,9 @@ export class World {
     p.trappedFor = 0;
     p.slideDir = null;
     p.bubbledBy = byId;
+    // 시한폭탄: a bubbled carrier cannot pass the bomb on, so it goes back in
+    // the pot. Leaving the flag set hands them a second bomb on rescue.
+    p.hasBomb = false;
 
     const ch = getCharacter(p.characterId);
     let drown = DROWN_SECONDS * (ch.drownMultiplier ?? 1);
@@ -888,10 +974,13 @@ export class World {
     // [COMMUNITY] 대장잡기: killing the enemy captain wipes their whole team.
     if (this.cfg.gameType === GameType.CAPTAIN && p.isCaptain) {
       this.nextCaptain = byId;
+      const killer = byId === null ? undefined : this.players[byId];
       for (const q of this.players) {
         if (q.team === p.team && q.state !== PlayerState.DEAD) {
           q.deaths++;
           q.state = PlayerState.DEAD;
+          q.hasBomb = false;
+          if (killer && !this.sameTeam(killer, q)) killer.kills++;
           this.events.push({ type: 'death', playerId: q.id, byId });
         }
       }
@@ -1083,6 +1172,17 @@ export class World {
     this.refreshSlots(p);
     const item = p.slots[p.selectedSlot];
     if (!item) return;
+    // [COMMUNITY] 무선 물폭탄: a charge buys you a bomb. Setting it off is the
+    // second half of the same charge, not a new one — otherwise three charges
+    // only ever get you one and a half bombs.
+    if (item === ItemId.REMOTE && this.hasLiveRemote(p)) {
+      for (const b of this.balloons.filter((b) => b.remote && b.ownerId === p.id)) this.explode(b);
+      p.itemsUsed++;
+      this.events.push({ type: 'useItem', playerId: p.id, item });
+      this.refreshSlots(p);
+      return;
+    }
+
     const have = p.inventory.get(item) ?? 0;
     if (have <= 0) return;
     if (!this.applyUse(p, item)) return;
@@ -1103,6 +1203,7 @@ export class World {
         if (p.state !== PlayerState.TRAPPED) return false;
         p.state = PlayerState.ALIVE;
         p.trappedFor = 0;
+        p.bubbledBy = null;
         p.invulnUntil = this.time + RESCUE_INVULN_SECONDS;
         return true;
 
@@ -1111,12 +1212,21 @@ export class World {
         p.shieldUntil = this.time + SHIELD_SECONDS;
         return true;
 
-      case ItemId.POTION:
+      case ItemId.POTION: {
         p.curse = CurseKind.NONE;
         p.curseUntil = 0;
         p.moonwalkUntil = 0;
         p.onBond = false;
+        // Dissolve the glue you are standing in as well — otherwise the very
+        // next tick puts you straight back on it and the potion did nothing.
+        const under = tileOf(p.pos.x, p.pos.y);
+        const g = this.groundAt(under.c, under.r);
+        if (g.kind === GroundKind.BOND) {
+          g.kind = GroundKind.NONE;
+          g.ownerId = undefined;
+        }
         return true;
+      }
 
       case ItemId.SANSAM:
         p.sansamUntil = this.time + SANSAM_SECONDS;
@@ -1132,16 +1242,12 @@ export class World {
       case ItemId.DART:
         return this.useDart(p);
 
-      case ItemId.REMOTE: {
+      case ItemId.REMOTE:
         // [COMMUNITY] the remote bomb does not count against the balloon
         // limit, so it enables an attack from a "no balloons left" state.
-        const mine = this.balloons.filter((b) => b.remote && b.ownerId === p.id);
-        if (mine.length > 0) {
-          for (const b of mine) this.explode(b);
-          return true;
-        }
+        // Detonation is handled by useSelectedItem, which does not spend a
+        // charge for it.
         return this.placeBalloon(p, true) !== null;
-      }
 
       case ItemId.BANANA: {
         const g = this.groundAt(c, r);
@@ -1249,11 +1355,12 @@ export class World {
 
   /** Public helper used by the glove; the AI and UI both go through this. */
   throwHeldBalloon(p: Player): boolean {
-    if (!p.canThrow) return false;
+    if (!p.canThrow || p.state !== PlayerState.ALIVE) return false;
     const b = this.balloonAt(p.logicalTile.c, p.logicalTile.r);
-    if (!b || b.ownerId !== p.id) return false;
+    if (!b || b.ownerId !== p.id || b.throwFrom) return false;
+    const before = b.throwTo;
     this.throwBalloon(p, b);
-    return true;
+    return b.throwTo !== before;
   }
 
   // -------------------------------------------------------------------------
@@ -1269,6 +1376,14 @@ export class World {
     if (!this.itemPlaneEnabled) return;
     for (let i = 0; i < ITEM_PLANE_WINDOWS.length; i++) {
       if (this.planeFired[i]) continue;
+      // The plane never flies in the first minute. On a match shorter than the
+      // standard 3:00 that rules out the early windows entirely — without this
+      // they are all already behind us at kick-off and fire together on tick
+      // one, carpeting the map in items.
+      if (ITEM_PLANE_WINDOWS[i] >= this.startClock - ITEM_PLANE_FIRST_PASS_DELAY) {
+        this.planeFired[i] = true;
+        continue;
+      }
       if (this.clock > ITEM_PLANE_WINDOWS[i]) continue;
       this.planeFired[i] = true;
       const n = 1 + this.rng.int(ITEM_PLANE_MAX_DROPS);

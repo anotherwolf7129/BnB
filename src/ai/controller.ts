@@ -515,13 +515,13 @@ export class AIController {
     return this.world.balloonAt(c, r) === null;
   };
 
-  /** Never place a balloon on or beside a spike — the bug that got Camp excluded. */
+  /**
+   * Never place a balloon on a spike: it bursts on the spot, which is how the
+   * original AI blew itself up on Camp. Standing *next* to a spike is fine.
+   */
   private canPlaceHere(): boolean {
     const { c, r } = this.player.logicalTile;
     if (this.world.tileAt(c, r) === TileKind.SPIKE) return false;
-    for (const d of DIRS) {
-      if (this.world.tileAt(c + d.c, r + d.r) === TileKind.SPIKE) return false;
-    }
     return this.world.balloonAt(c, r) === null;
   }
 
