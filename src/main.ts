@@ -2,7 +2,14 @@ import { AIDirector } from './ai/controller.js';
 import { tierParams } from './ai/tiers.js';
 import { Keyboard } from './input.js';
 import { Renderer } from './render/renderer.js';
-import { CHARACTERS, getCharacter, pickEnemies, pickEnemyTeamFor } from './sim/characters.js';
+import { drawFigure } from './render/figures.js';
+import {
+  CHARACTERS,
+  getCharacter,
+  pickEnemies,
+  pickEnemyTeamFor,
+  type CharacterDef,
+} from './sim/characters.js';
 import { DT, MATCH_SECONDS_NORMAL, MATCH_SECONDS_RESPAWN } from './sim/constants.js';
 import { LOADOUT_PRESETS, getPreset, itemDef } from './sim/items.js';
 import { MAPS } from './sim/maps.js';
@@ -77,10 +84,10 @@ function buildMenu(): void {
     const el = document.createElement('div');
     el.className = 'char' + (c.id === selectedCharacter ? ' selected' : '');
     el.innerHTML = `
-      <div class="dot" style="background:${c.color}"></div>
-      <div class="ko">${c.ko}</div>
+      <div class="ko">${c.ko}${c.bonus ? ' <span class="bonus">랜덤</span>' : ''}</div>
       <div class="en">${c.en}</div>
       <div class="stats">${c.base.count}→${c.max.count} · ${c.base.range}→${c.max.range} · ${c.base.speed}→${c.max.speed}</div>`;
+    el.prepend(makePortrait(c));
     el.addEventListener('click', () => {
       selectedCharacter = c.id;
       for (const child of charGrid.children) child.classList.remove('selected');
@@ -96,7 +103,8 @@ function buildMenu(): void {
     presetNote.textContent = getPreset(presetSel.value).desc;
     const map = MAPS.find((m) => m.id === mapSel.value);
     if (map && !map.aiAllowed) {
-      tierNote.textContent += ' — Note: this map has spikes, which the original AI could not handle; it was excluded from 협공배틀 for exactly that reason. Our AI refuses to place on or beside a spike.';
+      tierNote.textContent +=
+        ' — Note: this map has spikes (가시). A balloon left on one bursts on the spot, which is how the original AI killed itself here, and why the map was excluded from 협공배틀. Ours simply never places on a spike tile.';
     }
   };
   tierSel.addEventListener('change', syncNotes);
@@ -104,6 +112,24 @@ function buildMenu(): void {
   mapSel.addEventListener('change', syncNotes);
   gameTypeSel.addEventListener('change', syncNotes);
   syncNotes();
+}
+
+/** A small canvas showing the character, drawn with the in-game figure code. */
+function makePortrait(c: CharacterDef): HTMLCanvasElement {
+  const size = 56;
+  const dpr = window.devicePixelRatio || 1;
+  const cv = document.createElement('canvas');
+  cv.className = 'portrait';
+  cv.width = size * dpr;
+  cv.height = size * dpr;
+  cv.style.width = `${size}px`;
+  cv.style.height = `${size}px`;
+  const ctx = cv.getContext('2d');
+  if (ctx) {
+    ctx.scale(dpr, dpr);
+    drawFigure(ctx, { look: c.look, x: size / 2, y: size / 2 + 4, scale: 1.35, facing: 2 });
+  }
+  return cv;
 }
 
 function buildConfig(): MatchConfig {
@@ -170,6 +196,7 @@ class Session {
   running = true;
   hudAcc = 0;
   bannerUntil = 0;
+  finished = false;
   readonly enemyTier: number;
 
   constructor(cfg: MatchConfig, renderer: Renderer, keyboard: Keyboard) {
@@ -212,12 +239,18 @@ class Session {
   }
 
   private tick(): void {
+    // The result screen is built once. Re-running it every frame rebuilt the
+    // whole HUD 60 times a second for as long as the overlay was up.
+    if (this.finished) return;
     const human = this.world.players[0];
     if (human.state !== PlayerState.DEAD) this.keyboard.applyTo(human);
     this.director.update();
     this.world.step();
     this.consumeEvents();
-    if (this.world.phase === MatchPhase.OVER) this.finish();
+    if (this.world.phase === MatchPhase.OVER) {
+      this.finished = true;
+      this.finish();
+    }
   }
 
   private consumeEvents(): void {

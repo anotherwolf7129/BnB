@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { FUSE_SECONDS } from '../src/sim/constants.js';
+import { FUSE_SECONDS, GRID_COLS, GRID_ROWS } from '../src/sim/constants.js';
 import { GroundKind, TileKind } from '../src/sim/types.js';
+import type { World } from '../src/sim/world.js';
 import { makeWorld } from './helpers.js';
 
 describe('water jets', () => {
@@ -125,13 +126,44 @@ describe('water jets', () => {
     expect(world.groundAt(6, 2).kind).toBe(GroundKind.TRAP);
   });
 
-  it('a balloon placed beside a spike detonates immediately', () => {
+  it('a balloon placed on a spike detonates immediately', () => {
     const world = makeWorld(1, { mapId: 'camp' });
     const p = world.players[0];
-    // Camp row 2 carries spikes at columns 2 and 12.
-    expect(world.tileAt(2, 2)).toBe(TileKind.SPIKE);
-    world.placeAt(p, 2, 1);
+    const spike = findTile(world, TileKind.SPIKE);
+    world.placeAt(p, spike.c, spike.r);
     const b = world.placeBalloon(p)!;
     expect(b.fuse).toBeLessThan(0.1);
   });
+
+  it('a balloon placed on an ordinary tile next to a spike keeps its full fuse', () => {
+    const world = makeWorld(1, { mapId: 'camp' });
+    world.clearBlocks();
+    const p = world.players[0];
+    const spike = findTile(world, TileKind.SPIKE);
+    // Every walkable neighbour of a spike must behave like any other floor.
+    const neighbours = [
+      { c: spike.c - 1, r: spike.r },
+      { c: spike.c + 1, r: spike.r },
+      { c: spike.c, r: spike.r - 1 },
+      { c: spike.c, r: spike.r + 1 },
+    ].filter((t) => world.tileAt(t.c, t.r) === TileKind.EMPTY);
+    expect(neighbours.length).toBeGreaterThan(0);
+
+    for (const t of neighbours) {
+      world.placeAt(p, t.c, t.r);
+      p.liveBalloons = 0;
+      const b = world.placeBalloon(p)!;
+      expect(b.fuse).toBe(FUSE_SECONDS);
+      world.explode(b);
+    }
+  });
 });
+
+function findTile(world: World, kind: TileKind): { c: number; r: number } {
+  for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < GRID_COLS; c++) {
+      if (world.tileAt(c, r) === kind) return { c, r };
+    }
+  }
+  throw new Error(`no ${kind} tile on this map`);
+}

@@ -2,6 +2,33 @@ import type { Stats } from './types.js';
 
 export type Strength = 'SPEED' | 'POWER' | 'COUNT' | 'NORMAL';
 
+/**
+ * How a character is drawn. The renderer builds every figure out of the same
+ * parts — head, headgear, torso, outfit, arms, legs — so a character is a
+ * description rather than a sprite sheet.
+ *
+ * The descriptions follow the character art as documented by the Korean
+ * community: 배찌's eared hood and permanently half-shut eyes, 다오's blue
+ * helmet and belt, 디지니's cat-eared helmet and star buckle, 마리드's parted
+ * bob over a pink pinafore, 에띠 as the only one in glasses, 케피 as the
+ * round one, 모스 in a white sleeveless top.
+ */
+export interface CharacterLook {
+  /** Face and hands. */
+  skin: string;
+  /** Main garment. */
+  suit: string;
+  /** Trim, cuffs, boots. */
+  trim: string;
+  /** Hair, where any shows. */
+  hair: string;
+  head: 'hood' | 'helmet' | 'catHelmet' | 'bob' | 'pigtails' | 'onion' | 'spiky' | 'crown' | 'santaHat';
+  build: 'normal' | 'small' | 'chubby';
+  eyes: 'sleepy' | 'wide' | 'beady' | 'glasses';
+  /** Optional garment detail layered over the torso. */
+  outfit?: 'pinafore' | 'tank' | 'belt' | 'starBelt' | 'coat';
+}
+
 export interface CharacterDef {
   id: string;
   /** Korean name as it appears in Nexon's 도감. */
@@ -11,11 +38,14 @@ export interface CharacterDef {
   strength: Strength;
   base: Stats;
   max: Stats;
-  /** Palette used by the procedural renderer. */
+  /** Headline palette, used for menu text and the HUD. */
   color: string;
   accent: string;
+  look: CharacterLook;
   /** [COMMUNITY] 로두마니 fears water and drowns faster. */
   drownMultiplier?: number;
+  /** Not in the default eight — offered by 랜덤 in the original. */
+  bonus?: boolean;
 }
 
 /**
@@ -23,9 +53,10 @@ export interface CharacterDef {
  * balloons), 물줄기 (jet length), 속도 (speed). This table is the whole
  * character-balance layer.
  *
- * The 럭셔리 / 슈퍼 tiers were the game's paid power creep; community "올노"
- * rules ban them and restrict play to 배찌 and 우니. We ship the 12 basic
- * characters only.
+ * The roster is the eight default characters — 배찌, 다오, 디지니, 모스, 우니,
+ * 에띠, 마리드, 케피 — plus the two that the original only handed out through
+ * 랜덤, 로두마니 and 산타. The 럭셔리 / 슈퍼 tiers were the game's paid power
+ * creep; community "올노" rules ban them outright, so we do not ship them.
  */
 export const CHARACTERS: readonly CharacterDef[] = [
   {
@@ -37,6 +68,15 @@ export const CHARACTERS: readonly CharacterDef[] = [
     max: { count: 6, range: 7, speed: 9 },
     color: '#f2c14e',
     accent: '#e2622b',
+    look: {
+      skin: '#ffe0b8',
+      suit: '#f2c14e',
+      trim: '#e2622b',
+      hair: '#e2622b',
+      head: 'hood',
+      build: 'normal',
+      eyes: 'sleepy',
+    },
   },
   {
     id: 'dao',
@@ -47,6 +87,16 @@ export const CHARACTERS: readonly CharacterDef[] = [
     max: { count: 10, range: 7, speed: 7 },
     color: '#6fb3e0',
     accent: '#2c5f8a',
+    look: {
+      skin: '#ffe0b8',
+      suit: '#6fb3e0',
+      trim: '#2c5f8a',
+      hair: '#3b2a1c',
+      head: 'helmet',
+      build: 'normal',
+      eyes: 'wide',
+      outfit: 'belt',
+    },
   },
   {
     id: 'diziny',
@@ -57,16 +107,36 @@ export const CHARACTERS: readonly CharacterDef[] = [
     max: { count: 7, range: 9, speed: 8 },
     color: '#c88ce0',
     accent: '#6d3d8a',
+    look: {
+      skin: '#ffe0b8',
+      suit: '#c88ce0',
+      trim: '#6d3d8a',
+      hair: '#4a2c60',
+      head: 'catHelmet',
+      build: 'normal',
+      eyes: 'wide',
+      outfit: 'starBelt',
+    },
   },
   {
-    id: 'moss',
+    id: 'mos',
     ko: '모스',
-    en: 'Moss',
+    en: 'Mos',
     strength: 'SPEED',
     base: { count: 1, range: 1, speed: 5 },
     max: { count: 8, range: 5, speed: 8 },
     color: '#8fd16a',
     accent: '#3f7a2c',
+    look: {
+      skin: '#ffdcae',
+      suit: '#8fd16a',
+      trim: '#3f7a2c',
+      hair: '#2f2a24',
+      head: 'spiky',
+      build: 'normal',
+      eyes: 'beady',
+      outfit: 'tank',
+    },
   },
   {
     id: 'uni',
@@ -77,6 +147,15 @@ export const CHARACTERS: readonly CharacterDef[] = [
     max: { count: 6, range: 7, speed: 8 },
     color: '#f28fb1',
     accent: '#a83b62',
+    look: {
+      skin: '#ffe4c4',
+      suit: '#f28fb1',
+      trim: '#a83b62',
+      hair: '#5b3a2b',
+      head: 'pigtails',
+      build: 'small',
+      eyes: 'wide',
+    },
   },
   {
     id: 'etti',
@@ -87,6 +166,16 @@ export const CHARACTERS: readonly CharacterDef[] = [
     max: { count: 10, range: 8, speed: 8 },
     color: '#f5f0d8',
     accent: '#b09a5a',
+    look: {
+      skin: '#ffe4c4',
+      suit: '#f5f0d8',
+      trim: '#b09a5a',
+      hair: '#c9a227',
+      head: 'onion',
+      build: 'normal',
+      eyes: 'glasses',
+      outfit: 'coat',
+    },
   },
   {
     id: 'marid',
@@ -95,8 +184,18 @@ export const CHARACTERS: readonly CharacterDef[] = [
     strength: 'COUNT',
     base: { count: 2, range: 1, speed: 4 },
     max: { count: 9, range: 6, speed: 8 },
-    color: '#7ad6cf',
-    accent: '#2b6f6a',
+    color: '#f6a8c0',
+    accent: '#b04a6e',
+    look: {
+      skin: '#ffe4c4',
+      suit: '#fdfdfd',
+      trim: '#b04a6e',
+      hair: '#6b4423',
+      head: 'bob',
+      build: 'normal',
+      eyes: 'sleepy',
+      outfit: 'pinafore',
+    },
   },
   {
     id: 'kephi',
@@ -107,68 +206,68 @@ export const CHARACTERS: readonly CharacterDef[] = [
     max: { count: 9, range: 8, speed: 8 },
     color: '#e0834a',
     accent: '#8a4520',
+    look: {
+      skin: '#ffd9a8',
+      suit: '#e0834a',
+      trim: '#8a4520',
+      hair: '#6b3a17',
+      head: 'spiky',
+      build: 'chubby',
+      eyes: 'beady',
+      outfit: 'belt',
+    },
   },
   {
-    id: 'su',
-    ko: '수',
-    en: 'Su',
-    strength: 'SPEED',
-    base: { count: 2, range: 1, speed: 6 },
-    max: { count: 9, range: 7, speed: 10 },
-    color: '#b7c9f2',
-    accent: '#43549e',
+    id: 'rodumani',
+    ko: '로두마니',
+    en: 'Lodumani',
+    strength: 'NORMAL',
+    base: { count: 1, range: 1, speed: 5 },
+    max: { count: 8, range: 7, speed: 8 },
+    color: '#9aa7b0',
+    accent: '#3d474f',
+    look: {
+      skin: '#b8c2c9',
+      suit: '#57616b',
+      trim: '#c9a227',
+      hair: '#2b3238',
+      head: 'crown',
+      build: 'chubby',
+      eyes: 'beady',
+      outfit: 'coat',
+    },
+    // [COMMUNITY] 로두마니 fears water and drowns faster.
+    drownMultiplier: 0.6,
+    bonus: true,
   },
   {
-    id: 'huu',
-    ko: '후우',
-    en: 'Huu',
+    id: 'santa',
+    ko: '산타',
+    en: 'Santa',
     strength: 'COUNT',
-    base: { count: 3, range: 1, speed: 5 },
-    max: { count: 9, range: 7, speed: 10 },
-    color: '#d8d2c4',
-    accent: '#6f6455',
-  },
-  {
-    id: 'rei',
-    ko: '레이',
-    en: 'Rei',
-    strength: 'SPEED',
-    base: { count: 2, range: 1, speed: 6 },
-    max: { count: 9, range: 7, speed: 10 },
-    color: '#f0a6c8',
-    accent: '#9c3b6b',
-  },
-  {
-    id: 'lucy',
-    ko: '루시',
-    en: 'Lucy',
-    strength: 'SPEED',
-    base: { count: 2, range: 1, speed: 6 },
-    max: { count: 9, range: 7, speed: 10 },
-    color: '#ffe08a',
-    accent: '#c48b1f',
+    base: { count: 2, range: 1, speed: 4 },
+    max: { count: 9, range: 7, speed: 7 },
+    color: '#e05a5a',
+    accent: '#8c2f2f',
+    look: {
+      skin: '#ffdcae',
+      suit: '#e05a5a',
+      trim: '#fdfdfd',
+      hair: '#fdfdfd',
+      head: 'santaHat',
+      build: 'chubby',
+      eyes: 'wide',
+      outfit: 'belt',
+    },
+    bonus: true,
   },
 ];
 
-/**
- * [COMMUNITY] 로두마니 is not in the basic 도감 roster but is the canonical
- * exception to the uniform drown timer, so we keep the definition available.
- */
-export const RODUMANI: CharacterDef = {
-  id: 'rodumani',
-  ko: '로두마니',
-  en: 'Rodumani',
-  strength: 'NORMAL',
-  base: { count: 1, range: 1, speed: 5 },
-  max: { count: 8, range: 7, speed: 8 },
-  color: '#9aa7b0',
-  accent: '#3d474f',
-  drownMultiplier: 0.6,
-};
+/** Kept as a named export: 로두마니 is the canonical drown-timer exception. */
+export const RODUMANI: CharacterDef = CHARACTERS.find((c) => c.id === 'rodumani')!;
 
 const BY_ID = new Map<string, CharacterDef>();
 for (const c of CHARACTERS) BY_ID.set(c.id, c);
-BY_ID.set(RODUMANI.id, RODUMANI);
 
 export function getCharacter(id: string): CharacterDef {
   const c = BY_ID.get(id);
@@ -223,8 +322,8 @@ export const ENEMY_TEAMS: readonly EnemyTeam[] = [
     members: [
       { id: 'tuto', ko: '튜토', en: 'Tuto', minTier: 1, maxTier: 1, unlockCost: 0, statsFrom: 'dao' },
       { id: 'pinky', ko: '핑키', en: 'Pinky', minTier: 1, maxTier: 2, unlockCost: 30, statsFrom: 'uni' },
-      { id: 'jin', ko: '진', en: 'Jin', minTier: 1, maxTier: 3, unlockCost: 200, statsFrom: 'rei' },
-      { id: 'reina', ko: '레이나', en: 'Reina', minTier: 2, maxTier: 4, unlockCost: 500, statsFrom: 'lucy' },
+      { id: 'jin', ko: '진', en: 'Jin', minTier: 1, maxTier: 3, unlockCost: 200, statsFrom: 'marid' },
+      { id: 'reina', ko: '레이나', en: 'Reina', minTier: 2, maxTier: 4, unlockCost: 500, statsFrom: 'etti' },
     ],
   },
   {
@@ -233,9 +332,9 @@ export const ENEMY_TEAMS: readonly EnemyTeam[] = [
     en: 'Top Guys',
     difficulty: 'Hard',
     members: [
-      { id: 'shy', ko: '샤이', en: 'Shy', minTier: 1, maxTier: 3, unlockCost: 0, statsFrom: 'moss' },
-      { id: 'jun', ko: '준', en: 'Jun', minTier: 2, maxTier: 4, unlockCost: 400, statsFrom: 'su' },
-      { id: 'indie', ko: '인디', en: 'Indie', minTier: 3, maxTier: 5, unlockCost: 600, statsFrom: 'huu' },
+      { id: 'shy', ko: '샤이', en: 'Shy', minTier: 1, maxTier: 3, unlockCost: 0, statsFrom: 'mos' },
+      { id: 'jun', ko: '준', en: 'Jun', minTier: 2, maxTier: 4, unlockCost: 400, statsFrom: 'dao' },
+      { id: 'indie', ko: '인디', en: 'Indie', minTier: 3, maxTier: 5, unlockCost: 600, statsFrom: 'diziny' },
       { id: 'koon', ko: '쿤', en: 'Koon', minTier: 4, maxTier: 6, unlockCost: 1000, statsFrom: 'etti' },
     ],
   },

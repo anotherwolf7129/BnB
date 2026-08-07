@@ -72,6 +72,13 @@ export const BOND_SPEED_PPS = 20;
 /** [COMMUNITY] Banana peel slide speed. */
 export const SLIDE_SPEED_PPS = 260;
 
+/**
+ * [COMMUNITY] 컨베이어 벨트. Desert, Ice and Factory run belts across the floor;
+ * anything standing on one is carried along whether it wants to be or not.
+ * Slow enough to walk against, fast enough to ruin a dodge.
+ */
+export const CONVEYOR_SPEED_PPS = 62;
+
 // ---------------------------------------------------------------------------
 // Balloons and jets
 // ---------------------------------------------------------------------------
@@ -127,6 +134,8 @@ export const RESPAWN_SECONDS = 3;
  */
 export const ITEM_PLANE_WINDOWS = [119, 96, 74, 51, 29, 7];
 export const ITEM_PLANE_MAX_DROPS = 2;
+/** The plane never flies during the first minute, whatever the match length. */
+export const ITEM_PLANE_FIRST_PASS_DELAY = 60;
 
 // ---------------------------------------------------------------------------
 // Game type specifics
